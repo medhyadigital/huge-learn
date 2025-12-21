@@ -294,3 +294,4 @@ const badgeCounts = await prisma.userBadge.groupBy({
 
 
 
+

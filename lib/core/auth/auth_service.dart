@@ -15,13 +15,29 @@ class AuthResponse {
   });
   
   factory AuthResponse.fromJson(Map<String, dynamic> json) {
+    // Handle different response formats
+    Map<String, dynamic> userData;
+    
+    if (json.containsKey('user')) {
+      userData = json['user'] as Map<String, dynamic>;
+    } else if (json.containsKey('id') || json.containsKey('email')) {
+      // Direct user object
+      userData = json;
+    } else {
+      userData = {};
+    }
+    
     return AuthResponse(
-      user: json['user'] as Map<String, dynamic>? ?? {},
+      user: userData,
       expires: json['expires'] as String?,
     );
   }
   
   String get userId => user['id']?.toString() ?? '';
+  
+  String? get accessToken => user['access_token'] as String?;
+  String? get refreshToken => user['refresh_token'] as String?;
+  String? get sessionId => user['sessionId'] as String?;
 }
 
 /// Service for HUGE Foundations User Auth integration
@@ -33,112 +49,128 @@ class AuthService {
   /// Login with email and password
   /// 
   /// NextAuth.js blocks direct POST to /callback/credentials from external clients.
-  /// HUGE Foundations backend should expose a custom mobile authentication endpoint.
-  /// 
-  /// Trying multiple approaches:
+  /// We try multiple endpoints in order:
   /// 1. /api/auth/mobile/login (if custom mobile endpoint exists)
-  /// 2. /api/auth/login (if custom endpoint exists)
-  /// 3. /api/auth/signin (NextAuth standard, might require CSRF)
+  /// 2. /api/auth/login (custom backend endpoint)
+  /// 3. /api/auth/callback/credentials (NextAuth - may be blocked)
   FutureResult<AuthResponse> login({
     required String email,
     required String password,
   }) async {
+    final loginData = {
+      'email': email,
+      'password': password,
+    };
+    
+    // Try 1: Custom mobile login endpoint (if HUGE has one)
     try {
-      // Try custom mobile login endpoint first (if HUGE has one)
-      try {
-        final response = await _apiClient.post(
-          '/mobile/login',
-          data: {
-            'email': email,
-            'password': password,
-          },
-        );
-        
-        if (response.data != null && (response.data as Map).isNotEmpty) {
-          final responseData = response.data as Map<String, dynamic>;
-          if (responseData.containsKey('error')) {
-            // Continue to next method
-          } else {
-            final authResponse = AuthResponse.fromJson(responseData);
-            return Right(authResponse);
-          }
-        }
-      } catch (e) {
-        // Mobile endpoint doesn't exist, try next method
-      }
+      final response = await _apiClient.post(
+        '/mobile/login',
+        data: loginData,
+      );
       
-      // Try custom /api/auth/login endpoint (if HUGE has one)
-      try {
-        final response = await _apiClient.post(
-          '/login',
-          data: {
-            'email': email,
-            'password': password,
-          },
-        );
+      if (response.data != null && (response.data as Map).isNotEmpty) {
+        final responseData = response.data as Map<String, dynamic>;
         
-        if (response.data != null && (response.data as Map).isNotEmpty) {
-          final responseData = response.data as Map<String, dynamic>;
-          if (responseData.containsKey('error')) {
-            final errorMessage = responseData['error'] as String? ?? 
-                                responseData['message'] as String? ?? 
-                                'Login failed';
-            return Left(AuthFailure(errorMessage));
-          }
-          
-          // Handle different response formats
+        if (responseData.containsKey('error')) {
+          final errorMessage = responseData['error'] as String? ?? 
+                              responseData['message'] as String? ?? 
+                              'Login failed';
+          // Continue to next method
+        } else {
+          final authResponse = AuthResponse.fromJson(responseData);
+          return Right(authResponse);
+        }
+      }
+    } catch (e) {
+      // Mobile endpoint doesn't exist, try next method
+    }
+    
+    // Try 2: Custom /api/auth/login endpoint (backend may have this)
+    try {
+      final response = await _apiClient.post(
+        '/login',
+        data: loginData,
+      );
+      
+      if (response.data != null && (response.data as Map).isNotEmpty) {
+        final responseData = response.data as Map<String, dynamic>;
+        
+        if (responseData.containsKey('error')) {
+          final errorMessage = responseData['error'] as String? ?? 
+                              responseData['message'] as String? ?? 
+                              'Login failed';
+          // Continue to next method
+        } else {
+          // Handle JWT token format or NextAuth format
           if (responseData.containsKey('user')) {
             final authResponse = AuthResponse.fromJson(responseData);
             return Right(authResponse);
           } else if (responseData.containsKey('access_token')) {
-            // JWT token format - convert to session format
-            final user = responseData['user'] as Map<String, dynamic>? ?? {};
+            // JWT token format - convert to NextAuth format
+            final user = responseData['user'] as Map<String, dynamic>? ?? 
+                        {'id': responseData['id'], 'email': email};
             final authResponse = AuthResponse(user: user, expires: null);
             return Right(authResponse);
           }
         }
-      } catch (e) {
-        // Custom login endpoint doesn't exist, try NextAuth signin
       }
+    } catch (e) {
+      // Custom login endpoint doesn't exist, try NextAuth
+    }
+    
+    // Try 3: NextAuth /api/auth/callback/credentials (primary endpoint - was working before)
+    try {
+      final response = await _apiClient.post(
+        '/callback/credentials',
+        data: loginData,
+      );
       
-      // Try NextAuth /api/auth/signin with JSON
-      // Some NextAuth configurations allow JSON for mobile
-      try {
-        final response = await _apiClient.post(
-          '/signin',
-          data: {
-            'email': email,
-            'password': password,
-            'redirect': false,
-            'json': true,
-          },
-        );
+      if (response.data != null && (response.data as Map).isNotEmpty) {
+        final responseData = response.data as Map<String, dynamic>;
         
-        // If signin returns 200, get session
-        if (response.statusCode == 200) {
-          final sessionResponse = await _apiClient.get('/session');
-          if (sessionResponse.data != null && (sessionResponse.data as Map).isNotEmpty) {
-            final sessionData = sessionResponse.data as Map<String, dynamic>;
-            final authResponse = AuthResponse.fromJson(sessionData);
-            return Right(authResponse);
+        if (responseData.containsKey('error')) {
+          final errorMessage = responseData['error'] as String? ?? 
+                              responseData['message'] as String? ?? 
+                              'Login failed';
+          // Check if it's specifically the NextAuth blocking error
+          if (errorMessage.toLowerCase().contains('http post is not supported') ||
+              errorMessage.toLowerCase().contains('this action with http post')) {
+            return const Left(AuthFailure(
+              'Mobile authentication not supported. The backend needs to enable mobile login. Please contact support.'
+            ));
           }
+          return Left(AuthFailure(errorMessage));
         }
-      } catch (e) {
-        // NextAuth signin failed, return error
-        return Left(AuthFailure('Authentication failed. Please contact support if this issue persists.'));
+        
+        final authResponse = AuthResponse.fromJson(responseData);
+        return Right(authResponse);
       }
       
-      return const Left(AuthFailure('No authentication endpoint available'));
+      return const Left(AuthFailure('Invalid response from server'));
+    } on ServerException catch (e) {
+      // Check if it's the specific NextAuth blocking error
+      final errorMessage = e.message.toLowerCase();
+      if (errorMessage.contains('http post is not supported') ||
+          errorMessage.contains('this action with http post') ||
+          (errorMessage.contains('not supported') && errorMessage.contains('nextauth'))) {
+        return const Left(AuthFailure(
+          'Mobile authentication not supported. The backend needs to enable mobile login. Please contact support.'
+        ));
+      }
+      // For other server errors, return the actual error message
+      return Left(ServerFailure(e.message, statusCode: e.statusCode));
     } on AppException catch (e) {
       return Left(_mapExceptionToFailure(e));
     } catch (e) {
       final errorMessage = e.toString();
       if (errorMessage.contains('Connection refused') || 
           errorMessage.contains('Failed host lookup') ||
-          errorMessage.contains('SocketException')) {
-        return Left(NetworkFailure('Cannot connect to server. Please check your internet connection.'));
+          errorMessage.contains('SocketException') ||
+          errorMessage.contains('Connection timed out')) {
+        return Left(NetworkFailure('Cannot connect to server. Please check your internet connection and try again.'));
       }
-      return Left(UnknownFailure('An unexpected error occurred: ${errorMessage}'));
+      return Left(UnknownFailure('Login failed: ${errorMessage}'));
     }
   }
   

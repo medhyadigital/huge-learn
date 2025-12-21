@@ -485,3 +485,113 @@ enum RecommendationType {
   seva
   badge
 }
+
+// ============================================================================
+// 6. BHAGAVAD GITA SPECIFIC MODELS
+// ============================================================================
+
+model GitaChapter {
+  chapterId      Int       @id @map("chapter_id")
+  chapterNumber  Int       @unique @map("chapter_number")
+  chapterName    String    @map("chapter_name") @db.VarChar(255)
+  chapterNameSanskrit String @map("chapter_name_sanskrit") @db.VarChar(255)
+  description    String?   @db.Text
+  totalShlokas   Int       @default(0) @map("total_shlokas")
+  levelNumber    Int       @map("level_number")
+  displayOrder   Int       @default(0) @map("display_order")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  
+  shlokas GitaShloka[]
+  
+  @@index([levelNumber, displayOrder])
+  @@index([chapterNumber])
+  @@map("gita_chapters")
+}
+
+model GitaShloka {
+  shlokaId       String   @id @default(uuid()) @map("shloka_id") @db.VarChar(36)
+  chapterId     Int      @map("chapter_id")
+  shlokaNumber  Int      @map("shloka_number")
+  sanskritText  String   @map("sanskrit_text") @db.Text
+  transliteration String? @db.Text
+  displayOrder  Int      @default(0) @map("display_order")
+  xpReward      Int      @default(2) @map("xp_reward")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  
+  chapter      GitaChapter            @relation(fields: [chapterId], references: [chapterId], onDelete: Cascade)
+  translations GitaShlokaTranslation[]
+  audioFiles   GitaShlokaAudio[]
+  userProgress UserShlokaProgress[]
+  
+  @@unique([chapterId, shlokaNumber])
+  @@index([chapterId, displayOrder])
+  @@index([chapterId, shlokaNumber])
+  @@map("gita_shlokas")
+}
+
+model GitaShlokaTranslation {
+  translationId   String   @id @default(uuid()) @map("translation_id") @db.VarChar(36)
+  shlokaId        String   @map("shloka_id") @db.VarChar(36)
+  language        String   @map("language") @db.VarChar(10) // 'en', 'hi', 'sa'
+  meaning         String   @db.Text
+  explanation     String?  @db.Text
+  whyItMatters    String?  @map("why_it_matters") @db.Text
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  
+  shloka GitaShloka @relation(fields: [shlokaId], references: [shlokaId], onDelete: Cascade)
+  
+  @@unique([shlokaId, language])
+  @@index([shlokaId, language])
+  @@index([language])
+  @@map("gita_shloka_translations")
+}
+
+model GitaShlokaAudio {
+  audioId      String   @id @default(uuid()) @map("audio_id") @db.VarChar(36)
+  shlokaId     String   @map("shloka_id") @db.VarChar(36)
+  language     String   @map("language") @db.VarChar(10) // 'en', 'hi', 'sa'
+  audioType    String   @map("audio_type") @db.VarChar(20) // 'sanskrit', 'meaning'
+  audioUrl     String   @map("audio_url") @db.VarChar(500)
+  durationSeconds Int   @default(0) @map("duration_seconds")
+  isOfflineAvailable Boolean @default(false) @map("is_offline_available")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  
+  shloka GitaShloka @relation(fields: [shlokaId], references: [shlokaId], onDelete: Cascade)
+  
+  @@unique([shlokaId, language, audioType])
+  @@index([shlokaId, language])
+  @@index([language, audioType])
+  @@map("gita_shloka_audio")
+}
+
+model UserShlokaProgress {
+  progressId      String           @id @default(uuid()) @map("progress_id") @db.VarChar(36)
+  userId          String           @map("user_id") @db.VarChar(255)
+  shlokaId        String           @map("shloka_id") @db.VarChar(36)
+  status          ProgressStatus   @default(not_started)
+  timeSpentSeconds Int             @default(0) @map("time_spent_seconds")
+  xpEarned        Int              @default(0) @map("xp_earned")
+  hasListenedSanskrit Boolean       @default(false) @map("has_listened_sanskrit")
+  hasListenedMeaning Boolean        @default(false) @map("has_listened_meaning")
+  hasReadExplanation Boolean        @default(false) @map("has_read_explanation")
+  reflection      String?           @db.Text
+  startedAt       DateTime         @default(now()) @map("started_at")
+  completedAt     DateTime?        @map("completed_at")
+  lastAccessedAt  DateTime         @default(now()) @updatedAt @map("last_accessed_at")
+  
+  shloka GitaShloka @relation(fields: [shlokaId], references: [shlokaId], onDelete: Cascade)
+  
+  @@unique([userId, shlokaId])
+  @@index([userId, status])
+  @@index([userId, completedAt(sort: Desc)])
+  @@index([shlokaId, status])
+  @@map("user_shloka_progress")
+}

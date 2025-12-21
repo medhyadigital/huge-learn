@@ -10,6 +10,7 @@ class AppConstants {
   // HUGE Foundations Production API
   static const String hugeFoundationsAuthBaseUrl = 'https://hugefoundations.org/api/auth';
   static const String learningPlatformBaseUrl = 'https://hugefoundations.org/api/learning';
+  static const String gitaApiBaseUrl = 'http://localhost:3000/api/gita';
   
   // Timeouts
   static const Duration connectTimeout = Duration(seconds: 30);

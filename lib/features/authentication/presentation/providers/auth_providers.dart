@@ -3,7 +3,6 @@ import 'package:dartz/dartz.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/auth/auth_service.dart';
-import '../../../../core/network/api_client.dart';
 import '../../../../core/network/network_info.dart';
 import '../../../../core/utils/result.dart';
 import '../../../../core/error/failures.dart';
@@ -13,7 +12,7 @@ import '../../data/repositories/auth_repository_impl.dart';
 import '../../data/datasources/auth_remote_datasource.dart';
 import '../../data/datasources/auth_local_datasource.dart';
 import '../../../../core/storage/local_storage.dart';
-import '../../../../core/constants/app_constants.dart';
+import '../../../../core/providers/app_providers.dart';
 
 /// SharedPreferences Provider
 final sharedPreferencesProvider = FutureProvider<SharedPreferences>((ref) async {
@@ -27,14 +26,6 @@ final localStorageProvider = Provider<LocalStorage>((ref) {
     throw Exception('SharedPreferences not initialized');
   }
   return LocalStorage(prefs);
-});
-
-/// Auth Service Provider
-final authServiceProvider = Provider<AuthService>((ref) {
-  final apiClient = ApiClient(
-    baseUrl: AppConstants.hugeFoundationsAuthBaseUrl,
-  );
-  return AuthService(apiClient);
 });
 
 /// Auth Repository Provider

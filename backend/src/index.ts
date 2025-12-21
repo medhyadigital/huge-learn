@@ -25,6 +25,7 @@ import leaderboardRoutes from './routes/leaderboard';
 import searchRoutes from './routes/search';
 import analyticsRoutes from './routes/analytics';
 import dashboardRoutes from './routes/dashboard';
+import gitaRoutes from './routes/gita';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -63,6 +64,7 @@ app.use('/api/learning/sync', syncRoutes);
 app.use('/api/learning/search', searchRoutes);
 app.use('/api/learning/analytics', analyticsRoutes);
 app.use('/api/learning/dashboard', dashboardRoutes);
+app.use('/api/gita', gitaRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -148,7 +150,16 @@ app.listen(PORT, () => {
   console.log(`   POST   /api/learning/analytics/track`);
   console.log(`   GET    /api/learning/analytics/insights`);
   
-  console.log(`\n✅ Database: cltlsyxm_huge_learning (33 tables)`);
+  console.log(`\n   📖 Bhagavad Gita:`);
+  console.log(`   GET    /api/gita/chapters`);
+  console.log(`   GET    /api/gita/chapters/:chapterNumber`);
+  console.log(`   GET    /api/gita/shlokas/:shlokaId`);
+  console.log(`   GET    /api/gita/levels`);
+  console.log(`   GET    /api/gita/levels/:levelNumber`);
+  console.log(`   GET    /api/gita/progress/:userId`);
+  console.log(`   POST   /api/gita/progress`);
+  
+  console.log(`\n✅ Database: cltlsyxm_huge_learning (38 tables)`);
   console.log(`✅ Prisma ORM with query caching enabled`);
   console.log(`✅ HUGE Auth integration active`);
   console.log(`\n✅ All endpoints operational!\n`);
