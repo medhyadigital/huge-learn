@@ -48,11 +48,8 @@ class AuthService {
   
   /// Login with email and password
   /// 
-  /// NextAuth.js blocks direct POST to /callback/credentials from external clients.
-  /// We try multiple endpoints in order:
-  /// 1. /api/auth/mobile/login (if custom mobile endpoint exists)
-  /// 2. /api/auth/login (custom backend endpoint)
-  /// 3. /api/auth/callback/credentials (NextAuth - may be blocked)
+  /// Uses /api/auth/callback/credentials endpoint (was working before)
+  /// Only falls back to other endpoints if NextAuth specifically blocks it
   FutureResult<AuthResponse> login({
     required String email,
     required String password,
@@ -62,64 +59,7 @@ class AuthService {
       'password': password,
     };
     
-    // Try 1: Custom mobile login endpoint (if HUGE has one)
-    try {
-      final response = await _apiClient.post(
-        '/mobile/login',
-        data: loginData,
-      );
-      
-      if (response.data != null && (response.data as Map).isNotEmpty) {
-        final responseData = response.data as Map<String, dynamic>;
-        
-        if (responseData.containsKey('error')) {
-          final errorMessage = responseData['error'] as String? ?? 
-                              responseData['message'] as String? ?? 
-                              'Login failed';
-          // Continue to next method
-        } else {
-          final authResponse = AuthResponse.fromJson(responseData);
-          return Right(authResponse);
-        }
-      }
-    } catch (e) {
-      // Mobile endpoint doesn't exist, try next method
-    }
-    
-    // Try 2: Custom /api/auth/login endpoint (backend may have this)
-    try {
-      final response = await _apiClient.post(
-        '/login',
-        data: loginData,
-      );
-      
-      if (response.data != null && (response.data as Map).isNotEmpty) {
-        final responseData = response.data as Map<String, dynamic>;
-        
-        if (responseData.containsKey('error')) {
-          final errorMessage = responseData['error'] as String? ?? 
-                              responseData['message'] as String? ?? 
-                              'Login failed';
-          // Continue to next method
-        } else {
-          // Handle JWT token format or NextAuth format
-          if (responseData.containsKey('user')) {
-            final authResponse = AuthResponse.fromJson(responseData);
-            return Right(authResponse);
-          } else if (responseData.containsKey('access_token')) {
-            // JWT token format - convert to NextAuth format
-            final user = responseData['user'] as Map<String, dynamic>? ?? 
-                        {'id': responseData['id'], 'email': email};
-            final authResponse = AuthResponse(user: user, expires: null);
-            return Right(authResponse);
-          }
-        }
-      }
-    } catch (e) {
-      // Custom login endpoint doesn't exist, try NextAuth
-    }
-    
-    // Try 3: NextAuth /api/auth/callback/credentials (primary endpoint - was working before)
+    // Primary endpoint: /api/auth/callback/credentials (was working before)
     try {
       final response = await _apiClient.post(
         '/callback/credentials',
@@ -136,9 +76,8 @@ class AuthService {
           // Check if it's specifically the NextAuth blocking error
           if (errorMessage.toLowerCase().contains('http post is not supported') ||
               errorMessage.toLowerCase().contains('this action with http post')) {
-            return const Left(AuthFailure(
-              'Mobile authentication not supported. The backend needs to enable mobile login. Please contact support.'
-            ));
+            // Only then try fallback endpoints
+            return await _tryFallbackEndpoints(loginData);
           }
           return Left(AuthFailure(errorMessage));
         }
@@ -154,9 +93,8 @@ class AuthService {
       if (errorMessage.contains('http post is not supported') ||
           errorMessage.contains('this action with http post') ||
           (errorMessage.contains('not supported') && errorMessage.contains('nextauth'))) {
-        return const Left(AuthFailure(
-          'Mobile authentication not supported. The backend needs to enable mobile login. Please contact support.'
-        ));
+        // Only then try fallback endpoints
+        return await _tryFallbackEndpoints(loginData);
       }
       // For other server errors, return the actual error message
       return Left(ServerFailure(e.message, statusCode: e.statusCode));
@@ -172,6 +110,43 @@ class AuthService {
       }
       return Left(UnknownFailure('Login failed: ${errorMessage}'));
     }
+  }
+  
+  /// Try fallback endpoints if NextAuth blocks the primary endpoint
+  FutureResult<AuthResponse> _tryFallbackEndpoints(Map<String, dynamic> loginData) async {
+    // Try /api/auth/login as fallback
+    try {
+      final response = await _apiClient.post(
+        '/login',
+        data: loginData,
+      );
+      
+      if (response.data != null && (response.data as Map).isNotEmpty) {
+        final responseData = response.data as Map<String, dynamic>;
+        
+        if (responseData.containsKey('error')) {
+          // Continue to next fallback
+        } else {
+          // Handle JWT token format or NextAuth format
+          if (responseData.containsKey('user')) {
+            final authResponse = AuthResponse.fromJson(responseData);
+            return Right(authResponse);
+          } else if (responseData.containsKey('access_token')) {
+            // JWT token format - convert to NextAuth format
+            final user = responseData['user'] as Map<String, dynamic>? ?? 
+                        {'id': responseData['id'], 'email': loginData['email']};
+            final authResponse = AuthResponse(user: user, expires: null);
+            return Right(authResponse);
+          }
+        }
+      }
+    } catch (e) {
+      // Fallback endpoint doesn't exist
+    }
+    
+    return const Left(AuthFailure(
+      'Mobile authentication not supported. The backend needs to enable mobile login. Please contact support.'
+    ));
   }
   
   /// Register new user (HUGE Foundations API format)
